@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>市場溫度計儀表板</title>
+    <!-- 引入 PapaParse 解析 CSV -->
+    <script src="https://cloudflare.com"></script>
+    <style>
+        :root {
+            --bg-color: #f1f3f5;
+            --card-bg: #ffffff;
+            --border-color: #dee2e6;
+            --text-main: #333333;
+            --text-sub: #666666;
+            --up-color: #dc3545;   /* 紅漲 */
+            --down-color: #28a745; /* 綠跌 */
+            --neutral-color: #495057;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            color: var(--text-main);
+        }
+
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* 1. 頂部大字卡橫條樣式 */
+        .top-bar {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .top-card {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .top-card .title { font-size: 13px; color: var(--text-sub); margin-bottom: 5px; }
+        .top-card .value { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
+        .top-card .change { font-size: 12px; }
+
+        /* 2. 下方四大區塊佈局 (兩兩並排) */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+
+        .section-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 12px;
+            margin-bottom: 15px;
+        }
+        .section-title { font-size: 18px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+        .section-subtitle { font-size: 13px; color: var(--text-sub); }
+
+        /* 3. 區塊內部卡片格子 */
+        .inner-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        /* 若需要單欄滿版的特殊卡片（例如台股年乖離率） */
+        .full-width { grid-column: span 2; }
+
+        .item-card {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+        }
+        .item-title { font-size: 13px; color: #495057; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+        .item-value { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
+        .item-change { font-size: 13px; }
+
+        /* 4. 狀態小標籤標籤 (過熱/正常/低波) */
+        .status-tag {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .tag-up { background-color: #f8d7da; color: #721c24; }
+        .tag-down { background-color: #d4edda; color: #155724; }
+        .tag-neutral { background-color: #e2e3e5; color: #383d41; }
+
+        /* 漲跌顏色定義 */
+        .up { color: var(--up-color); }
+        .down { color: var(--down-color); }
+        .neutral { color: var(--neutral-color); }
+        
+        #loading { text-align: center; padding: 50px; font-size: 18px; color: #999; }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <div id="loading">市場數據即時同步中...</div>
+        
+        <!-- 頂部大字卡橫條 -->
+        <div class="top-bar" id="top-bar-container"></div>
+
+        <!-- 下方四大主要區塊 -->
+        <div class="main-grid">
+            
+            <!-- 趨勢 Trend -->
+            <div class="section-box">
+                <div class="section-header">
+                    <div class="section-title" style="color: #e65100;">● 趨勢 Trend</div>
+                    <div class="section-subtitle">市場現在是在上升還是下跌？</div>
+                </div>
+                <div class="inner-grid" id="trend-container"></div>
+            </div>
+
+            <!-- 情緒 Sentiment -->
+            <div class="section-box">
+                <div class="section-header">
+                    <div class="section-title" style="color: #4527a0;">● 情緒 Sentiment</div>
+                    <div class="section-subtitle">投資人現在是怕怕還是貪婪？</div>
+                </div>
+                <div class="inner-grid" id="sentiment-container"></div>
+            </div>
+
+            <!-- 流動性 Liquidity -->
+            <div class="section-box">
+                <div class="section-header">
+                    <div class="section-title" style="color: #01579b;">● 流動性 Liquidity</div>
+                    <div class="section-subtitle">市場資金寬鬆或緊縮？</div>
+                </div>
+                <div class="inner-grid" id="liquidity-container"></div>
+            </div>
+
+            <!-- 估值 Valuation -->
+            <div class="section-box">
+                <div class="section-header">
+                    <div class="section-title" style="color: #b71c1c;">● 估值 Valuation</div>
+                    <div class="section-subtitle">股票到底值不值得買？</div>
+                </div>
+                <div class="inner-grid" id="valuation-container"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ⚠️ 請替換成妳發布的 Google Sheets CSV 網址
+        const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRE70WcqMK7G_BZ0u7TxtCrKx6xaLPkDZQdGXDywr2aTbtdL9GnMJCuPfpURFyiEZ6s6cgzPiIfAyr7/pub?output=csv';
+
+        // 判斷漲跌與格式化文字的函式
+        function getChangeHtml(points, ratio) {
+            if (!points || points.trim() === "" || points === "0") return `<span class="neutral">0.00 (0.00%)</span>`;
+            const isDown = points.trim().startsWith('-');
+            const className = isDown ? 'down' : 'up';
+            const sign = isDown ? '' : '+';
+            return `<span class="${className}">${sign}${points} (${sign}${ratio})</span>`;
+        }
+
+        // 自動判斷並產生狀態標籤（過熱、正常、泡沫等）
+        function getStatusTag(name, ratio, value) {
+            let num = parseFloat(ratio) || parseFloat(value) || 0;
+            // 這裡提供預設的判斷邏輯，您可以根據真實金融定義修改判斷數值
+            if (name.includes('過熱') || num > 20) return `<span class="status-tag tag-up">過熱</span>`;
+            if (name.includes('泡沫') || num > 100) return `<span class="status-tag tag-up">泡沫</span>`;
+            if (name.includes('低波') || (name.includes('VIX') && num < 15)) return `<span class="status-tag tag-down">低波</span>`;
+            if (name.includes('正常') || num === 0 || (num > -1 && num < 10)) return `<span class="status-tag tag-neutral">正常</span>`;
+            return ``; 
+        }
+
+        Papa.parse(csvUrl, {
+            download: true,
+            header: true,
+            complete: function(results) {
+                document.getElementById('loading').style.display = 'none';
+                const rows = results.data;
+                // 👇 請在程式碼這裡手動加上這行，幫我們把抓到的資料列印出來
+                console.log("成功抓到試算表資料：", rows);
+
+                // 核心搜尋函式：確保名稱完全一致
+                function findRow(name) {
+                    return rows.find(r => r['指數類別'] && r['指數類別'].trim() === name.trim());
+                }
+
+                // 1. 渲染頂部大字卡橫條 (6個)
+                const topBar = document.getElementById('top-bar-container');
+                const topList = ['台股加權指數', '台指期盤後', 'S&P 500', 'NASDAQ', '費城半導體', '道瓊工業']; 
+                // 註：若試算表內是寫「台股加權」，請記得要把上面陣列改為 '台股加權' 才能對應到
+                
+                topList.forEach(name => {
+                    const data = findRow(name);
+                    if (data) {
+                        topBar.innerHTML += `
+                            <div class="top-card">
+                                <div class="title">${data['指數類別']}</div>
+                                <div class="value ${parseFloat(data['漲跌點']) >= 0 ? 'up':'down'}">${data['數據']}</div>
+                                <div class="change">${getChangeHtml(data['漲跌點'], data['漲跌幅'])}</div>
+                            </div>
+                        `;
+                    }
+                });
+
+                // 建立卡片的共用工具
+                function appendCard(containerId, targetName, isFullWidth = false, showChange = true) {
+                    const data = findRow(targetName);
+                    if (!data) return;
+                    const container = document.getElementById(containerId);
+                    const fullClass = isFullWidth ? 'full-width' : '';
+                    
+                    container.innerHTML += `
+                        <div class="item-card ${fullClass}">
+                            <div class="item-title">
+                                ${data['指數類別']} 
+                                ${getStatusTag(data['指數類別'], data['漲跌幅'], data['數據'])}
+                            </div>
+                            <div class="item-value" style="color: ${parseFloat(data['漲跌點']) < 0 ? 'var(--down-color)' : 'var(--text-main)'}">${data['數據']}</div>
+                            ${showChange ? `<div class="item-change">${getChangeHtml(data['漲跌點'], data['漲跌幅'])}</div>` : ''}
+                        </div>
+                    `;
+                }
+
+                // 2. 渲染 趨勢 Trend (圖中出現的項目)
+                appendCard('trend-container', '台股240MA乖離率(%)', true); // 滿版大卡片
+                appendCard('trend-container', 'S&P500240MA乖離率(%)');
+                appendCard('trend-container', 'NASDAQ240MA年乖離率(%)');
+                appendCard('trend-container', '費半240MA年乖離率(%)');
+                appendCard('trend-container', '道瓊240MA年乖離率(%)');
+
+                // 3. 渲染 情緒 Sentiment
+                appendCard('sentiment-container', 'VIX 恐慌指數');
+                appendCard('sentiment-container', 'CNN 恐懼貪婪指數', false, false); // 不顯示漲跌點
+                appendCard('sentiment-container', 'Put/Call Ratio');
